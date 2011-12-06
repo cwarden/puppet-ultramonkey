@@ -1,0 +1,22 @@
+#
+#  /etc/apt/sources.list
+#
+
+
+#
+# etch
+#
+deb     http://mirrors.kernel.org/debian/     etch main contrib non-free
+deb-src http://mirrors.kernel.org/debian/     etch main contrib non-free
+
+#
+#  Security updates
+#
+deb     http://security.debian.org/ etch/updates  main contrib non-free
+deb-src http://security.debian.org/ etch/updates  main contrib non-free
+
+# because there's a bug in libruby1.8.4-2+
+# http://bugs.debian.org/cgi-bin/bugreport.cgi?bug=378476
+deb http://snapshot.debian.net/archive pool ruby1.8
+
+deb http://www.ultramonkey.org/download/3/ sarge main

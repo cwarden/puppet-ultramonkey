@@ -1,0 +1,93 @@
+#!/bin/bash
+
+# The INPUT chain handles both connections to the load balancer and to virtual IP's.
+# All traffic not explicitly allowed is sent to the "firewall" chain where it
+# is logged and then dropped.
+
+#Point this to your copy of ip_tables
+IPT="/sbin/iptables"
+# INTERNALNET="192.168.1.0/24"
+
+$IPT -P INPUT DROP
+$IPT -P OUTPUT ACCEPT
+$IPT -P FORWARD DROP
+#Flush old rules, delete the firewall chain if it exists
+$IPT -F
+$IPT -F -t nat
+$IPT -X firewall
+
+if [ "x$1" = "xstop" ]; then
+        echo -n "Stopping the firewall..."
+        $IPT -P INPUT ACCEPT
+        $IPT -P FORWARD ACCEPT
+        $IPT -N firewall
+        echo "Done."
+        exit;
+fi
+
+echo -n "Setting up the firewall..."
+
+#Set up the firewall chain
+$IPT -N firewall
+#throttle udp logging
+#$IPT -A firewall -p udp -m limit --limit 10/hour -j LOG --log-level info --log-prefix "FW DROP (UDP): "
+#$IPT -A firewall ! -p udp -m limit --limit 100/hour -j LOG --log-level info --log-prefix "FW DROP: "
+$IPT -A firewall -p udp  -j LOG --log-level info --log-prefix "FW DROP (UDP): "
+$IPT -A firewall ! -p udp  -j LOG --log-level info --log-prefix "FW DROP: "
+$IPT -A firewall -j DROP
+
+#Accept ourselves
+$IPT -A INPUT -s 127.0.0.1/32 -d 127.0.0.1/32 -j ACCEPT
+$IPT -A INPUT -i lo -j ACCEPT
+
+#allow established connections
+$IPT -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# allow icmp
+$IPT -A INPUT -p icmp -j ACCEPT
+
+# heartbeat (TODO: restrict)
+$IPT -A INPUT -p udp --destination-port 694  -j ACCEPT
+
+# allow ssh, ident
+$IPT -A INPUT -p tcp --destination-port 22  -j ACCEPT
+$IPT -A INPUT -p tcp --destination-port 113 -j REJECT --reject-with tcp-reset
+
+# Traffic to machines behind load balancers
+
+# allow LVS traffic to virtual IPs.  The mask in the mark should cause any mark
+# to be matched so these rules do not need to be modified when additional
+# virtual services are added
+#$IPT -A INPUT -m mark --mark 0x1000/0x1000  -j LOG --log-prefix "VIP MATCH (1)"
+$IPT -A INPUT -m mark --mark 0x1000/0x1000  -j ACCEPT
+
+# allow dns services
+$IPT -A FORWARD -p tcp --destination-port 53  -j ACCEPT
+$IPT -A FORWARD -p udp --destination-port 53  -j ACCEPT
+$IPT -A FORWARD -p tcp --destination-port 953  -j ACCEPT
+$IPT -A FORWARD -p udp --destination-port 953  -j ACCEPT
+
+
+# allow traffic for connections initiated from outside
+$IPT -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
+
+# allow ssh directly to servers
+$IPT -A FORWARD -p tcp --destination-port 22  -j ACCEPT
+
+# allow icmp to servers
+$IPT -A FORWARD -p icmp  -j ACCEPT
+
+# Reject ident lookups with a tcp reset
+$IPT -A FORWARD -p tcp --destination-port 113 -j REJECT --reject-with tcp-reset
+
+
+# allow traffic origination from inside
+$IPT -A FORWARD -i eth1 -j ACCEPT
+
+
+
+#Send everything else out the firewall.
+$IPT -A INPUT -j firewall
+$IPT -A FORWARD -j firewall
+
+echo "Done."
